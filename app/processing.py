@@ -4,7 +4,7 @@ import subprocess
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Optional, Sequence
+from typing import Callable, Iterable, List, Optional, Sequence
 
 import whisper
 from pydub import AudioSegment
@@ -92,7 +92,11 @@ def _format_srt_timestamp(seconds: float) -> str:
     return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
 
 
-def transcribe_chunks(chunk_paths: Sequence[Path], model_name: str) -> List[Segment]:
+def transcribe_chunks(
+    chunk_paths: Sequence[Path],
+    model_name: str,
+    progress_callback: Optional[Callable[[int, int], None]] = None,
+) -> List[Segment]:
     """Run Whisper on each chunk and aggregate segments with corrected timestamps."""
     if not chunk_paths:
         return []
@@ -102,7 +106,8 @@ def transcribe_chunks(chunk_paths: Sequence[Path], model_name: str) -> List[Segm
     segments: List[Segment] = []
     offset = 0.0
 
-    for chunk_path in chunk_paths:
+    total = len(chunk_paths)
+    for index, chunk_path in enumerate(chunk_paths, start=1):
         logger.info("Transcribing %s", chunk_path.name)
         result = model.transcribe(str(chunk_path), language="ru")
         for seg in result.get("segments", []):
@@ -115,6 +120,8 @@ def transcribe_chunks(chunk_paths: Sequence[Path], model_name: str) -> List[Segm
             )
         audio = AudioSegment.from_file(chunk_path)
         offset += len(audio) / 1000.0
+        if progress_callback:
+            progress_callback(index, total)
     return segments
 
 
