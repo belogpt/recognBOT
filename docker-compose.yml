@@ -1,0 +1,46 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+
+  bot:
+    build: .
+    restart: unless-stopped
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
+      WHISPER_MODEL: ${WHISPER_MODEL:-small}
+      CHUNK_DURATION_SECONDS: ${CHUNK_DURATION_SECONDS:-600}
+      ENABLE_SRT: ${ENABLE_SRT:-true}
+    volumes:
+      - media-data:/app/data
+    depends_on:
+      - redis
+    command: ["python", "-m", "app.bot"]
+
+  worker:
+    build: .
+    restart: unless-stopped
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
+      WHISPER_MODEL: ${WHISPER_MODEL:-small}
+      CHUNK_DURATION_SECONDS: ${CHUNK_DURATION_SECONDS:-600}
+      ENABLE_SRT: ${ENABLE_SRT:-true}
+    volumes:
+      - media-data:/app/data
+    depends_on:
+      - redis
+    command: ["celery", "-A", "app.tasks.celery_app", "worker", "--loglevel=info"]
+
+volumes:
+  redis-data:
+  media-data:
