@@ -1,3 +1,6 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.3.1+cpu
+torchaudio==2.3.1+cpu
 celery==5.3.6
 openai-whisper==20240930
 python-telegram-bot==20.8
