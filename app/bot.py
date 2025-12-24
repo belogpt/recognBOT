@@ -1,4 +1,5 @@
 import logging
+import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -6,7 +7,7 @@ from telegram import Update
 from telegram.ext import Application, CallbackContext, CommandHandler, MessageHandler, filters
 
 from app import config
-from app.tasks import process_video
+from app.tasks import enqueue_job, process_video
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -55,8 +56,14 @@ async def handle_video(update: Update, context: CallbackContext) -> None:
         await message.reply_text("Не удалось получить видео. Попробуйте ещё раз.")
         return
 
-    await message.reply_text("Видео принято в обработку. Ожидайте результат.")
-    process_video.delay(message.chat_id, file_id, file_name)
+    job_id = str(uuid.uuid4())
+    position = enqueue_job(job_id=job_id, chat_id=message.chat_id, file_name=file_name)
+
+    await message.reply_text(
+        f"Видео принято в обработку. Ваша позиция в общей очереди: {position}. "
+        "Ожидайте статус обработки."
+    )
+    process_video.delay(job_id, message.chat_id, file_id, file_name)
 
 
 def main() -> None:
