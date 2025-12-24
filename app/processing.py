@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import shutil
 import subprocess
@@ -24,7 +25,7 @@ class Segment:
 def download_video(bot, file_id: str, target_dir: Path, file_name_hint: Optional[str]) -> Path:
     """Download the video from Telegram and return the stored path."""
     target_dir.mkdir(parents=True, exist_ok=True)
-    file = bot.get_file(file_id)
+    file = asyncio.run(bot.get_file(file_id))
     extension = Path(file.file_path or "").suffix or (
         Path(file_name_hint).suffix if file_name_hint else ""
     )

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from pathlib import Path
@@ -62,7 +63,7 @@ def _remove_job(job_id: str) -> None:
 
 def _send_status(bot: Bot, chat_id: int, text: str) -> None:
     try:
-        bot.send_message(chat_id=chat_id, text=text)
+        asyncio.run(bot.send_message(chat_id=chat_id, text=text))
     except Exception:
         logger.exception("Failed to send status message to user")
 
@@ -101,7 +102,7 @@ def _wait_for_turn(job_id: str, bot: Bot, chat_id: int) -> None:
 
 def _send_failure(bot: Bot, chat_id: int, reason: str) -> None:
     try:
-        bot.send_message(chat_id=chat_id, text=f"Не удалось обработать видео: {reason}")
+        asyncio.run(bot.send_message(chat_id=chat_id, text=f"Не удалось обработать видео: {reason}"))
     except Exception:
         logger.exception("Failed to send failure message to user")
 
@@ -192,21 +193,25 @@ def process_video(
         )
 
         current_step += 1
-        bot.send_document(
-            chat_id=chat_id,
-            document=transcription_txt.open("rb"),
-            filename=transcription_txt.name,
-            caption="Результат распознавания",
-            parse_mode=ParseMode.HTML,
+        asyncio.run(
+            bot.send_document(
+                chat_id=chat_id,
+                document=transcription_txt.open("rb"),
+                filename=transcription_txt.name,
+                caption="Результат распознавания",
+                parse_mode=ParseMode.HTML,
+            )
         )
 
         if transcription_srt and transcription_srt.exists():
-            bot.send_document(
-                chat_id=chat_id,
-                document=transcription_srt.open("rb"),
-                filename=transcription_srt.name,
-                caption="SRT файл с субтитрами",
-                parse_mode=ParseMode.HTML,
+            asyncio.run(
+                bot.send_document(
+                    chat_id=chat_id,
+                    document=transcription_srt.open("rb"),
+                    filename=transcription_srt.name,
+                    caption="SRT файл с субтитрами",
+                    parse_mode=ParseMode.HTML,
+                )
             )
         _send_status(
             bot,
