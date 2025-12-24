@@ -2,11 +2,13 @@ import asyncio
 import logging
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Any, Coroutine, Optional, TypeVar
 
+import httpx
 from celery import Celery
 from telegram import Bot
 from telegram.constants import ParseMode
+from telegram.request import HTTPXRequest
 
 from app import config, processing
 from redis import Redis
@@ -32,6 +34,48 @@ QUEUE_KEY = "recognbot:queue"
 QUEUE_META_PREFIX = "recognbot:queue:meta:"
 QUEUE_NOTIFY_INTERVAL = 30
 TRANSCRIBE_NOTIFY_STEPS = 5
+
+_loop: Optional[asyncio.AbstractEventLoop] = None
+_shared_bot: Optional[Bot] = None
+_T = TypeVar("_T")
+
+
+def _get_loop() -> asyncio.AbstractEventLoop:
+    global _loop
+    if _loop is None or _loop.is_closed():
+        _loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(_loop)
+    return _loop
+
+
+def _run_async(coro: Coroutine[Any, Any, _T]) -> _T:
+    loop = _get_loop()
+    try:
+        return loop.run_until_complete(coro)
+    except RuntimeError as exc:
+        # Recreate the loop if it was closed unexpectedly (e.g., by httpx/anyio teardown).
+        if "closed" not in str(exc).lower():
+            raise
+        logger.warning("Event loop was closed unexpectedly; recreating loop")
+        global _loop
+        _loop = None
+        loop = _get_loop()
+        return loop.run_until_complete(coro)
+
+
+def _get_bot() -> Bot:
+    global _shared_bot
+    if _shared_bot is None:
+        request = HTTPXRequest(
+            connection_pool_limits=httpx.Limits(
+                max_connections=20,
+                max_keepalive_connections=20,
+                keepalive_expiry=60.0,
+            ),
+            pool_timeout=30.0,
+        )
+        _shared_bot = Bot(token=config.TELEGRAM_BOT_TOKEN, request=request)
+    return _shared_bot
 
 
 def _get_redis() -> Redis:
@@ -63,7 +107,7 @@ def _remove_job(job_id: str) -> None:
 
 def _send_status(bot: Bot, chat_id: int, text: str) -> None:
     try:
-        asyncio.run(bot.send_message(chat_id=chat_id, text=text))
+        _run_async(bot.send_message(chat_id=chat_id, text=text))
     except Exception:
         logger.exception("Failed to send status message to user")
 
@@ -102,7 +146,7 @@ def _wait_for_turn(job_id: str, bot: Bot, chat_id: int) -> None:
 
 def _send_failure(bot: Bot, chat_id: int, reason: str) -> None:
     try:
-        asyncio.run(bot.send_message(chat_id=chat_id, text=f"Не удалось обработать видео: {reason}"))
+        _run_async(bot.send_message(chat_id=chat_id, text=f"Не удалось обработать видео: {reason}"))
     except Exception:
         logger.exception("Failed to send failure message to user")
 
@@ -115,7 +159,7 @@ def process_video(
         logger.error("TELEGRAM_BOT_TOKEN is not configured")
         return
 
-    bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
+    bot = _get_bot()
     work_dir = config.TEMP_DIR / f"{chat_id}_{int(time.time())}"
     video_path: Optional[Path] = None
     audio_path: Optional[Path] = None
@@ -132,7 +176,7 @@ def process_video(
             chat_id,
             f"Обработка началась. Шаг {current_step}/{total_steps}: скачиваем видео (0%).",
         )
-        video_path = processing.download_video(bot, file_id, work_dir, file_name)
+        video_path = processing.download_video(bot, file_id, work_dir, file_name, _run_async)
         audio_path = work_dir / "audio.wav"
 
         current_step += 1
@@ -193,7 +237,7 @@ def process_video(
         )
 
         current_step += 1
-        asyncio.run(
+        _run_async(
             bot.send_document(
                 chat_id=chat_id,
                 document=transcription_txt.open("rb"),
@@ -204,7 +248,7 @@ def process_video(
         )
 
         if transcription_srt and transcription_srt.exists():
-            asyncio.run(
+            _run_async(
                 bot.send_document(
                     chat_id=chat_id,
                     document=transcription_srt.open("rb"),
