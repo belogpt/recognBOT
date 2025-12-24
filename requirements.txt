@@ -1,0 +1,6 @@
+celery==5.3.6
+openai-whisper==20240930
+python-telegram-bot==20.8
+pydub==0.25.1
+redis==5.0.3
+python-dotenv==1.0.1
